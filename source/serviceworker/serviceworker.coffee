@@ -1,31 +1,90 @@
-### Hello! ###
+import { appVersion } from "./configmodule.js"
 
-cacheName = 'sample-cache-name'
+############################################################
+log = (arg) -> console.log("[serviceworker] #{arg}")
+
+############################################################
+matchOptions = {
+    ignoreSearch: true
+}
+
+############################################################
+cacheName = 'experiment-cache'
 filesToCache = [
+    "/",
+    "/manifest.json",
+    "/android-chrome-192x192.png",
+    "/favicon-16x16.png"
     ##list of files to be cached
 ]
 
-### Start the service worker and cache all of the app's content ###
-self.addEventListener('install', installEventHandler) 
-self.addEventListener('fetch', fetchEventHandler)
+############################################################
+onRegister = ->
+    log "onRegister"
+    self.addEventListener('activate', activateEventHandler)
+    self.addEventListener('fetch', fetchEventHandler)
+    self.addEventListener('install', installEventHandler)
+    self.addEventListener('message', messageEventHandler)
+    return
 
-#region fetchFromCache
-fetchEventHandler = (event) -> event.respondWith(cacheAnswer(event.request))
+############################################################
+#region Event Handlers
+activateEventHandler = (evnt) ->
+    log "activateEventHandler"
+    evnt.waitUntil(self.clients.claim())
+    log "clients have been claimed!"
+    return
 
-# returns a Promise as it is an asnc function as we await on other stuff ;-)
-cacheAnswer = (request) ->
-    try return await caches.match(request)
-    catch err then return fetch(request)
+ 
+fetchEventHandler = (evnt) -> 
+    log "fetchEventHandler"
+    log evnt.request.url
+    # evnt.respondWith(networkThenCache(evnt.request))  
+    evnt.respondWith(cacheThenNetwork(evnt.request))
+    return
+
+installEventHandler = (evnt) -> 
+    log "installEventHandler"
+    self.skipWaiting()
+    log "skipped waiting :-)"
+    evnt.waitUntil(installStaticCache())
+    return
+
+messageEventHandler = (evnt) ->
+    log "messageEventHandler"
+    log JSON.stringify(evnt.data, null, 4)
+    log "I am version #{appVersion}!"
+    ## TODO remove images on command
+    return
+
 #endregion
 
-#region cacheInstallation
-installEventHandler = (event) -> event.waitUntil(cacheInstall())
-
-# returns a Promise as it is an asnc function as we await on other stuff ;-)
-cacheInstall = ->
-    try await caches.delete(cacheName)
-    catch err # make clean install and remain silent when something goes wrong
-    cache = await caches.open(cacheName)
-    await cache.addAll filesToCache
+############################################################
+#region helper functions
+installStaticCache = ->
+    log "installStaticCache"
+    try
+        cache = await caches.open(cacheName)
+        return cache.addAll(filesToCache)
+    catch err then log "Error on installStaticCache: #{err.message}"
     return
-#endregion    
+
+networkThenCache = (request) ->
+    log "networkThanCache"
+    try 
+        return await fetch(request)
+    catch err then return caches.match(request, matchOptions)
+    return
+
+cacheThenNetwork = (request) ->
+    log "cacheThenNetwork"
+    cacheResponse = await caches.match(request, matchOptions)
+    if cacheResponse? then return cacheResponse
+    else return fetch(request)
+    return
+
+#endregion
+
+
+############################################################
+onRegister()
